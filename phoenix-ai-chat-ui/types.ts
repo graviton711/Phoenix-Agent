@@ -6,6 +6,7 @@ export interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
   reasoning?: string;
+  imageUrl?: string;      // URL to attached image preview
   executionResult?: string;
   timestamp: string;
   projectName?: string;  // Reference to built project in workspace/builds

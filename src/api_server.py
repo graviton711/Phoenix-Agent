@@ -19,7 +19,7 @@ from typing import Optional, List, Dict, Any, Callable
 
 logger = logging.getLogger(__name__)
 
-from fastapi import FastAPI, HTTPException, BackgroundTasks
+from fastapi import FastAPI, HTTPException, BackgroundTasks, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -27,6 +27,14 @@ from pydantic import BaseModel
 from dotenv import load_dotenv
 from ui_builder import AppBuilder
 from config import MAIN_MODEL_ID, TOOL_DETECTION_MODEL, EMBEDDING_MODEL
+from file_processor import process_file, get_file_type, generate_summary
+from document_rag import (
+    index_uploaded_file, 
+    retrieve_relevant_chunks, 
+    has_indexed_documents,
+    get_file_hash,
+    cleanup_session_documents
+)
 
 # --- CLIENT ---
 from groq import Groq
@@ -80,61 +88,11 @@ class KeyManager:
 key_manager = KeyManager(GOOGLE_API_KEYS)
 
 # --- RAG / MEMORY MANAGER ---
-class MemoryManager:
-    def __init__(self, persist_directory: str = os.path.join(BASE_DIR, "chroma_db")):
-        if not chromadb:
-            self.client = None
-            return
-        self.client = chromadb.PersistentClient(path=persist_directory)
-        self.collection = self.client.get_or_create_collection(name="chat_memory")
-
-    async def get_embedding(self, text: str) -> List[float]:
-        key = key_manager.get_key()
-        if not key: return []
-        try:
-            genai.configure(api_key=key)
-            # Using find_model to be safe although gemini-embedding-001 is standard
-            result = await asyncio.to_thread(
-                genai.embed_content,
-                model=EMBEDDING_MODEL, # text-embedding-004 is gemini-embedding-001
-                content=text,
-                task_type="retrieval_document"
-            )
-            return result['embedding']
-        except Exception as e:
-            print(f"ERROR: Embedding failed: {e}")
-            return []
-
-    async def add_message(self, session_id: str, msg_id: str, role: str, content: str):
-        if not self.client or not content.strip(): return
-        emb = await self.get_embedding(content)
-        if not emb: return
-        
-        self.collection.add(
-            ids=[msg_id],
-            embeddings=[emb],
-            metadatas=[{"session_id": session_id, "role": role, "timestamp": datetime.now().isoformat()}],
-            documents=[content]
-        )
-
-    async def query_memory(self, session_id: str, query_text: str, top_k: int = 3) -> str:
-        if not self.client or not query_text.strip(): return ""
-        query_emb = await self.get_embedding(query_text)
-        if not query_emb: return ""
-        
-        results = self.collection.query(
-            query_embeddings=[query_emb],
-            n_results=top_k
-            # Removed session_id filter to enable Global cross-chat memory
-        )
-        
-        docs = results.get("documents", [[]])[0]
-        if not docs: return ""
-        
-        context = "\n---\n".join(docs)
-        return f"\n[BỐI CẢNH LỊCH SỬ LIÊN QUAN]:\n{context}\n"
+# --- RAG / MEMORY MANAGER ---
+from ai_core import MemoryManager, MindsetManager
 
 memory_manager = MemoryManager()
+mindset_manager = MindsetManager()
 
 MODEL_ID = MAIN_MODEL_ID
 
@@ -169,6 +127,12 @@ _builds_path = os.path.join(WORKSPACE_DIR, "builds")
 if os.path.exists(_builds_path):
     app.mount("/preview", StaticFiles(directory=_builds_path, html=True), name="preview")
     print(f"INFO: Static preview mounted at /preview from {_builds_path}")
+
+# --- STATIC FILE SERVING FOR UPLOADS ---
+UPLOAD_DIR = os.path.join(WORKSPACE_DIR, "uploads")
+os.makedirs(UPLOAD_DIR, exist_ok=True)
+app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
+print(f"INFO: Static uploads mounted at /uploads from {UPLOAD_DIR}")
 
 # --- MCP STARTUP ---
 @app.on_event("startup")
@@ -213,7 +177,13 @@ def load_system_prompt():
     except:
         return "You are a helpful AI."
 
-SYSTEM_PROMPT = load_system_prompt()
+# Using dynamic prompt for Mindset
+def get_system_prompt():
+    base = load_system_prompt()
+    mindset = mindset_manager.get_mindset()
+    if mindset:
+        return f"{base}\n\n[MINDSET & SELF-EVOLUTION]:{mindset}"
+    return base
 
 # --- TOOL DETECTION (Stage 1) ---
 TOOL_DETECTION_MODEL = TOOL_DETECTION_MODEL
@@ -253,12 +223,13 @@ async def detect_tool_intent(user_message: str, context: str = "") -> Dict[str, 
         result = json.loads(result_text)
         
         # Validate action
-        valid_actions = ["search", "python", "build", "file", "none"]
+        valid_actions = ["search", "python", "build", "file", "update_mindset", "save_knowledge", "none"]
         if result.get("action") not in valid_actions:
             result["action"] = "none"
             result["params"] = {}
         
         return result
+
         
     except json.JSONDecodeError as e:
         logger.error(f"Tool detection JSON error: {e}")
@@ -471,6 +442,60 @@ async def build_ui_project(prompt: str, project_name: str = "phoenix_app", callb
         logger.error(f"Build failed: {e}")
         return {"success": False, "error": str(e)}
 
+async def execute_update_mindset(operation: str, match: str = "", content: str = "") -> str:
+    """Handler for update_mindset tool - allows Qwen to update its own mindset."""
+    try:
+        mindset_path = os.path.join(WORKSPACE_DIR, "mindset", "general.md")
+        os.makedirs(os.path.dirname(mindset_path), exist_ok=True)
+        
+        # Read current mindset
+        try:
+            with open(mindset_path, "r", encoding="utf-8") as f:
+                lines = f.read().strip().split("\n")
+        except FileNotFoundError:
+            lines = []
+        
+        op = operation.upper()
+        
+        if op == "ADD":
+            if content and content not in lines:
+                lines.append(content)
+                with open(mindset_path, "w", encoding="utf-8") as f:
+                    f.write("\n".join(lines))
+                return f"✓ Mindset updated: Added '{content[:50]}...'"
+            return "Rule already exists or empty content."
+        
+        elif op == "DELETE":
+            for i, line in enumerate(lines):
+                if match.strip() in line or line.strip() in match:
+                    removed = lines.pop(i)
+                    with open(mindset_path, "w", encoding="utf-8") as f:
+                        f.write("\n".join(lines))
+                    return f"✓ Mindset updated: Removed '{removed[:50]}...'"
+            return f"Rule not found: {match[:50]}"
+        
+        elif op == "MODIFY":
+            for i, line in enumerate(lines):
+                if match.strip() in line or line.strip() in match:
+                    old = lines[i]
+                    lines[i] = content
+                    with open(mindset_path, "w", encoding="utf-8") as f:
+                        f.write("\n".join(lines))
+                    return f"✓ Mindset updated: '{old[:30]}' → '{content[:30]}'"
+            return f"Rule not found: {match[:50]}"
+        
+        return f"Unknown operation: {operation}"
+    except Exception as e:
+        return f"Mindset update failed: {e}"
+
+async def execute_save_knowledge(content: str, topic: str) -> str:
+    """Handler for save_knowledge tool - allows Qwen to save to vector DB."""
+    try:
+        result = await memory_manager.add_knowledge(content)
+        return f"✓ Knowledge saved: {result}"
+    except Exception as e:
+        return f"Knowledge save failed: {e}"
+
 def clean_tool_tags(text: str) -> str:
     """Removes artifacts, tool tags, and emojis from the text."""
     if not text: return ""
@@ -543,11 +568,44 @@ TOOLS = [
                 "required": ["query"]
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "update_mindset",
+            "description": "Update your internal mindset/preferences based on user feedback or corrections. Use this when the user tells you how they prefer you to behave.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "operation": {"type": "string", "enum": ["ADD", "DELETE", "MODIFY"], "description": "ADD=new rule, DELETE=remove rule, MODIFY=change existing rule"},
+                    "match": {"type": "string", "description": "(For DELETE/MODIFY) The existing rule text to find."},
+                    "content": {"type": "string", "description": "(For ADD/MODIFY) The new rule content, starting with '- '."}
+                },
+                "required": ["operation"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "save_knowledge",
+            "description": "Save important information to your long-term memory. Use this when the user teaches you something worth remembering for future conversations.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "content": {"type": "string", "description": "The knowledge/fact to save."},
+                    "topic": {"type": "string", "description": "The category: coding, general, politics, literature, etc."}
+                },
+                "required": ["content", "topic"]
+            }
+        }
     }
 ]
 
 # --- LOGIC ---
+
 async def stream_chat_generator(user_message: str, session_id: str):
+
     # 1. Setup Session
     if session_id not in sessions:
         sessions[session_id] = ChatSession(id=session_id)
@@ -559,28 +617,33 @@ async def stream_chat_generator(user_message: str, session_id: str):
     
     # 3. Sliding Window & RAG
     msgs = [
-        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "system", "content": get_system_prompt()},
         {"role": "system", "content": time_context}
     ]
-
-    # Get relevant context from RAG
-    rag_context = await memory_manager.query_memory(session_id, user_message)
-    if rag_context:
-        msgs.append({"role": "system", "content": f"Sử dụng thông tin bổ sung từ lịch sử trò chuyện nếu cần thiết: {rag_context}"})
-
-    # Sliding Window: Take only last 12 messages for immediate context
-    history_window = session.messages[-12:]
-    for m in history_window:
-        content = (m.content or "").strip()
-        if not content and not m.reasoning: continue
-        if m.role == "assistant":
-             if content: msgs.append({"role": "assistant", "content": content})
-        else:
-             msgs.append({"role": "user", "content": content})
-             
-    msgs.append({"role": "user", "content": user_message})
     
-    # Save User Msg
+    # 3.5 Document RAG: Retrieve relevant chunks
+    rag_parts = []
+    
+    # Check Hot Buffer (immediate perception for just-uploaded files)
+    if session_id in recent_uploads_cache:
+        for f in recent_uploads_cache[session_id]:
+            # For images, we just pass the whole description as they are small
+            # For PDFs, it might be large, but let's take a summary or first part
+            if f['file_type'] == 'image':
+                rag_parts.append(f"[Hot Context - Recent Image: {f['file_name']}]:\n{f['text']}\n(Lưu ý: Đây là nội dung hình ảnh bạn vừa gửi, hãy dùng nó để trả lời.)")
+            else:
+                rag_parts.append(f"[Hot Context - Recent File: {f['file_name']}]:\n{f['text'][:2000]}")
+
+    # Merge with indexed RAG results
+    if has_indexed_documents(session_id):
+        doc_context = await retrieve_relevant_chunks(session_id, user_message, top_k=5)
+        if doc_context:
+            rag_parts.append(doc_context)
+
+    if rag_parts:
+        msgs.append({"role": "system", "content": "\n\n---\n\n".join(rag_parts)})
+
+    # Save User Msg (do this early for message ID)
     user_msg_id = str(uuid.uuid4())
     user_msg_obj = Message(
         id=user_msg_id,
@@ -589,23 +652,53 @@ async def stream_chat_generator(user_message: str, session_id: str):
         timestamp=datetime.now().isoformat()
     )
     session.messages.append(user_msg_obj)
-    
-    # Async index user message
-    asyncio.create_task(memory_manager.add_message(session_id, user_msg_id, "user", user_message))
 
     try:
         yield f"data: {json.dumps({'sessionId': session_id, 'type': 'start'})}\n\n"
         
-        # === STAGE 1: Tool Detection (using llama-4-scout) ===
-        # Get recent context for tool detection
+        # === STAGE 1: Unified Tool Detection + RAG Decision ===
         recent_context = " | ".join([m.content[:100] for m in session.messages[-4:] if m.content])
+        
+        # Add hint about indexed files to help tool router decide
+        if has_indexed_documents(session_id):
+            recent_context = f"[HINT: A file is attached to this session] | {recent_context}"
         
         yield f"data: {json.dumps({'type': 'reasoning', 'delta': '> Analyzing intent...'})}\n\n"
         tool_intent = await detect_tool_intent(user_message, recent_context)
         
-        tool_result = None
         action = tool_intent.get("action", "none")
         params = tool_intent.get("params", {})
+        needs_rag = tool_intent.get("needs_rag", True) # Default to True for safety
+        topic = tool_intent.get("topic", "general")
+        
+        # === Conditional Memory RAG (OPTIMIZED: Skip if not needed) ===
+        if needs_rag:
+
+            rag_context = await memory_manager.query_memory(user_message, topic_hint=topic)
+            if rag_context:
+                msgs.append({"role": "system", "content": f"Sử dụng thông tin bổ sung từ lịch sử trò chuyện nếu cần thiết: {rag_context}"})
+
+
+        # Sliding Window: Take only last 12 messages for immediate context
+        history_window = session.messages[-12:]
+        for m in history_window:
+            content = (m.content or "").strip()
+            if not content and not m.reasoning: continue
+            if m.role == "assistant":
+                 if content: msgs.append({"role": "assistant", "content": content})
+            else:
+                 msgs.append({"role": "user", "content": content})
+                 
+        msgs.append({"role": "user", "content": user_message})
+        
+        # Async index user message (pass topic hint for efficient routing)
+        asyncio.create_task(memory_manager.add_message(session_id, user_msg_id, "user", user_message, topic_hint=topic))
+        
+        # NOTE: Mindset reflection is now handled by Qwen via update_mindset tool
+        # No automatic reflection call needed anymore
+
+        tool_result = None
+
         
         # === Execute Tool if needed ===
         if action != "none":
@@ -715,6 +808,19 @@ async def stream_chat_generator(user_message: str, session_id: str):
                 tool_result = await execute_mcp_file(file_type, path, content)
                 yield f"data: {json.dumps({'type': 'execution_result', 'delta': tool_result + '\\n'})}\n\n"
         
+            elif action == "update_mindset":
+                operation = params.get("operation", "ADD")
+                match = params.get("match", "")
+                content = params.get("content", "")
+                yield f"data: {json.dumps({'type': 'reasoning', 'delta': '> Updating mindset...'})}\n\n"
+                tool_result = await execute_update_mindset(operation, match, content)
+            
+            elif action == "save_knowledge":
+                knowledge_content = params.get("content", "")
+                topic = params.get("topic", "general")
+                yield f"data: {json.dumps({'type': 'reasoning', 'delta': '> Saving to memory...'})}\n\n"
+                tool_result = await execute_save_knowledge(knowledge_content, topic)
+
         # === STAGE 2: Response Generation (using Qwen, streaming) ===
         # Build messages for response
         if tool_result:
@@ -966,7 +1072,10 @@ async def stream_chat_generator(user_message: str, session_id: str):
 @app.get("/api/chat/stream")
 async def chat_stream(message: str, sessionId: Optional[str] = None):
     if not sessionId: sessionId = str(uuid.uuid4())
-    return StreamingResponse(stream_chat_generator(message, sessionId), media_type="text/event-stream")
+    return StreamingResponse(
+        stream_chat_generator(message, sessionId), 
+        media_type="text/event-stream"
+    )
 
 # --- PROFILE & MISC ---
 @app.get("/api/profile")
@@ -1007,6 +1116,8 @@ def create_session():
 def delete_session(session_id: str):
     if session_id in sessions:
         del sessions[session_id]
+        # Clean up session documents
+        cleanup_session_documents(session_id)
         return {"success": True}
     raise HTTPException(status_code=404, detail="Session not found")
 
@@ -1061,7 +1172,97 @@ def delete_project(project_name: str):
         return {"success": True}
     raise HTTPException(status_code=404, detail="Project not found")
 
+# --- FILE UPLOAD ---
+# UPLOAD_DIR defined earlier for static mounting
+
+# Track indexing status
+indexing_status: Dict[str, dict] = {}  # file_hash -> {status, progress, error}
+# Hot Buffer: {session_id: [{file_name, file_hash, text, file_type, timestamp}]}
+recent_uploads_cache: Dict[str, List[dict]] = {}
+
+async def _index_document_async(session_id: str, file_hash: str, file_name: str, text: str):
+    """Background task for document indexing."""
+    try:
+        indexing_status[file_hash] = {"status": "indexing", "progress": 0}
+        result = await index_uploaded_file(session_id, file_hash, file_name, text)
+        indexing_status[file_hash] = {"status": "done", "result": result}
+        
+        # Cleanup Hot Buffer for this session once indexed
+        if session_id in recent_uploads_cache:
+            recent_uploads_cache[session_id] = [
+                f for f in recent_uploads_cache[session_id] if f['file_hash'] != file_hash
+            ]
+    except Exception as e:
+        indexing_status[file_hash] = {"status": "error", "error": str(e)}
+
+@app.post("/api/upload")
+async def upload_file(
+    background_tasks: BackgroundTasks, 
+    file: UploadFile = File(...), 
+    sessionId: Optional[str] = None
+):
+    """
+    Upload and process a file (image or PDF).
+    Starts async indexing for RAG retrieval.
+    """
+    try:
+        # Save file temporarily
+        file_path = os.path.join(UPLOAD_DIR, file.filename)
+        with open(file_path, "wb") as f:
+            content = await file.read()
+            f.write(content)
+        
+        # Process file to get text
+        file_type, extracted_text, file_bytes = await process_file(file_path)
+        
+        # Get file hash for caching
+        file_hash = get_file_hash(file_bytes)
+        
+        # Start async indexing if session provided
+        if sessionId:
+            # Update Hot Buffer for immediate perception
+            if sessionId not in recent_uploads_cache:
+                recent_uploads_cache[sessionId] = []
+            recent_uploads_cache[sessionId].append({
+                "file_name": file.filename,
+                "file_hash": file_hash,
+                "text": extracted_text,
+                "file_type": file_type,
+                "timestamp": datetime.now()
+            })
+            
+            # Keep only last 3 hot uploads to save memory
+            recent_uploads_cache[sessionId] = recent_uploads_cache[sessionId][-3:]
+
+            background_tasks.add_task(_index_document_async, sessionId, file_hash, file.filename, extracted_text)
+        
+        return {
+            "success": True,
+            "filename": file.filename,
+            "file_type": file_type,
+            "file_hash": file_hash,
+            "previewUrl": f"http://localhost:8000/uploads/{file.filename}" if file_type == "image" else None,
+            "indexing": sessionId is not None,
+            # Don't send full text - just confirmation
+            "text_length": len(extracted_text)
+        }
+        
+    except Exception as e:
+        return {
+            "success": False,
+            "error": str(e)
+        }
+
+@app.get("/api/upload/status/{file_hash}")
+def get_indexing_status(file_hash: str):
+    """Check indexing status for a file."""
+    if file_hash in indexing_status:
+        return indexing_status[file_hash]
+    return {"status": "not_found"}
+
 if __name__ == "__main__":
+
+
     import uvicorn
     # Use reload - use api_server directly since we're running from src/
     uvicorn.run("api_server:app", host="0.0.0.0", port=8000, reload=True, reload_dirs=["src"])

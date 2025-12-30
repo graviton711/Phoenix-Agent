@@ -1,0 +1,5 @@
+Respond with a JSON object containing a single key "topic".
+Analyze the user's message and categorize it into one of the available topics: [topics_list].
+If the message clearly belongs to a DISTINCT new domain not in the list (e.g. "cooking", "investing"), you may output a new one-word lowercase topic name.
+If unclear or casual, use "general".
+Output format: {"topic": "chosen_topic"}

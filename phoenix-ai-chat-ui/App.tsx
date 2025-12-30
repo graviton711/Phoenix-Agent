@@ -172,7 +172,7 @@ const App: React.FC = () => {
     }
   };
 
-  const handleSendMessage = useCallback(async (content: string, isRegenerate = false) => {
+  const handleSendMessage = useCallback(async (content: string, imageUrl?: string, isRegenerate = false) => {
     if (isLoading) return;
 
     if (!isRegenerate) {
@@ -181,6 +181,7 @@ const App: React.FC = () => {
         id: `temp-${Date.now()}`,
         role: 'user',
         content,
+        imageUrl,
         timestamp: new Date().toISOString(),
       };
       setMessages(prev => [...prev, userMessage]);
@@ -206,9 +207,7 @@ const App: React.FC = () => {
       const url = new URL(`${API_BASE}/chat/stream`, window.location.origin);
       url.searchParams.append('message', content);
       if (activeChatId) url.searchParams.append('sessionId', activeChatId);
-      // If regenerate, we might want to tell server to forget the last turn, 
-      // but for now our server just appends. 
-      // TODO: Proper session editing on server.
+
 
       const response = await fetch(url.toString(), { signal });
       if (!response.body) throw new Error('No response body');
@@ -352,7 +351,7 @@ const App: React.FC = () => {
       return prev.slice(0, lastUserIndex + 1);
     });
 
-    handleSendMessage(lastUserMsg.content, true);
+    handleSendMessage(lastUserMsg.content, undefined, true);
   }, [messages, isLoading, handleSendMessage]);
 
   // 4. Effects for State Sync
@@ -418,6 +417,7 @@ const App: React.FC = () => {
                 accentColor={accentColor}
                 messages={messages}
                 isLoading={isLoading}
+                activeChatId={activeChatId}
                 onSendMessage={handleSendMessage}
                 onRegenerate={handleRegenerate}
                 onCancelStream={handleCancelStream}

@@ -13,7 +13,10 @@ Phoenix AI is a sophisticated, multi-agent artificial intelligence platform desi
 *   **Advanced Web Intelligence**: Real-time web search via DuckDuckGo with AI reranking and deep summarization.
 *   **Autonomous UI Builder**: Generates full-stack React components and multi-file projects from a single prompt.
 *   **Integrated Code Interpreter**: Safely executes Python code to solve math, data analysis, and logic problems.
-*   **Global Recursive Memory**: Uses ChromaDB vector storage for persistent, cross-session long-term memory.
+*   **Visual Perception**: Multimodal capabilities powered by **Gemma 3 Vision** with a "Hot Buffer" for instant image recognition and analysis.
+*   **Robust Knowledge Retrieval**: Hybrid RAG system combining Vector Search (ChromaDB) and Keyword Search (BM25) with Reciprocal Rank Fusion.
+*   **Self-Healing Database**: Automatic detection and recovery handling for vector index corruption.
+*   **Global Recursive Memory**: Cross-session long-term memory with dynamic topic creation and archival.
 *   **MCP Integration**: Connected to the Model Context Protocol (MCP) for direct filesystem and tool interaction.
 
 ---
@@ -55,7 +58,9 @@ Phoenix utilizes a specialized Multi-Agent architecture where each task is handl
 | :--- | :--- | :--- |
 | **Orchestrator** | `meta-llama/llama-4-scout` | Intent detection & tool routing (Stage 1) |
 | **Core Intelligence** | `qwen/qwen3-32b` | Main reasoning & conversational response (Stage 2) |
+| **Vision Engine** | `gemma-3-27b-it` | Image analysis & text extraction |
 | **UI Architect** | `google/gemini-3-flash` | High-speed React component generation |
+| **Archivist** | `moonshotai/kimi-k2` | Long-term memory archival & knowledge structuring |
 | **Code Expert** | `moonshotai/kimi-k2` | Documentation & complex code explanations |
 | **Search Queries** | `openai/gpt-oss-120b` | Keyword optimization & query generation |
 | **Knowledge Reranker**| `groq/compound-mini` | Search result scoring & filtering |

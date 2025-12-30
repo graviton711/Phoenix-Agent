@@ -13,7 +13,8 @@ interface ChatAreaProps {
   accentColor: ThemeColor;
   messages: ChatMessage[];
   isLoading: boolean;
-  onSendMessage: (message: string) => void;
+  activeChatId: string | null;
+  onSendMessage: (message: string, imageUrl?: string) => void;
   onRegenerate?: () => void;
   onCancelStream?: () => void;
 }
@@ -353,12 +354,77 @@ const MessageActions: React.FC<{
   );
 };
 
-const ChatArea: React.FC<ChatAreaProps> = ({ accentColor, messages, isLoading, onSendMessage, onRegenerate, onCancelStream }) => {
+const ChatArea: React.FC<ChatAreaProps> = ({ accentColor, messages, isLoading, activeChatId, onSendMessage, onRegenerate, onCancelStream }) => {
   const [inputValue, setInputValue] = useState('');
+  const [uploadedContext, setUploadedContext] = useState('');
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadedFileName, setUploadedFileName] = useState('');
+  const [uploadPreviewUrl, setUploadPreviewUrl] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const theme = getThemeStyles(accentColor) as any;
   const isPreset = theme.type === 'preset';
+
+  // File upload handler
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsUploading(true);
+    setUploadedFileName(file.name);
+
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+
+      const url = new URL('http://localhost:8000/api/upload');
+      if (activeChatId) url.searchParams.append('sessionId', activeChatId);
+
+      const response = await fetch(url.toString(), {
+        method: 'POST',
+        body: formData,
+      });
+
+      const result = await response.json();
+
+      if (result.success) {
+        // We don't prepended text anymore, the backend handles indexing
+        setUploadedContext('READY');
+        if (result.previewUrl) {
+          setUploadPreviewUrl(result.previewUrl);
+        }
+      } else {
+        alert(`Upload failed: ${result.error}`);
+        setUploadedFileName('');
+      }
+    } catch (error) {
+      alert(`Upload error: ${error}`);
+      setUploadedFileName('');
+    } finally {
+      setIsUploading(false);
+      // Reset file input
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  // Clear uploaded context after sending
+  const handleSubmitWithContext = (e: React.FormEvent) => {
+    e.preventDefault();
+    if ((inputValue.trim() || uploadedContext) && !isLoading) {
+      // If there's an attached file, we can optionally add a note to the display content
+      const messageToSend = inputValue.trim() || (uploadedFileName ? `Phân tích file ${uploadedFileName}` : '');
+
+      if (messageToSend) {
+        onSendMessage(messageToSend, uploadPreviewUrl || undefined);
+        setInputValue('');
+        setUploadedContext('');
+        setUploadedFileName('');
+        setUploadPreviewUrl('');
+      }
+    }
+  };
+
 
   // Scroll only when a NEW message is added, not on every token update
   useEffect(() => {
@@ -372,13 +438,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({ accentColor, messages, isLoading, o
     }
   }, [isLoading]);
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (inputValue.trim() && !isLoading) {
-      onSendMessage(inputValue.trim());
-      setInputValue('');
-    }
-  };
+  const handleSubmit = handleSubmitWithContext;
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -388,6 +448,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({ accentColor, messages, isLoading, o
   };
 
   const hasMessages = messages.length > 0;
+
 
   return (
     <div className="flex-1 flex flex-col items-center justify-between px-8 pt-8 pb-2 h-full relative overflow-hidden bg-transparent">
@@ -439,6 +500,20 @@ const ChatArea: React.FC<ChatAreaProps> = ({ accentColor, messages, isLoading, o
                     {message.role === 'assistant' && message.executionResult && (
                       <ExecutionBlock output={message.executionResult} />
                     )}
+
+                    {/* Image Preview - COMPLETELY SEPARATE FROM BUBBLE */}
+                    {message.imageUrl && (
+                      <div className={`mb-3 flex ${message.role === 'user' ? 'justify-end' : 'justify-start'} animate-fadeIn`}>
+                        <div className="relative group/image">
+                          <img
+                            src={message.imageUrl}
+                            alt="Attached"
+                            className="max-w-[280px] sm:max-w-md max-h-72 rounded-3xl object-contain border-4 border-white/80 dark:border-white/10 shadow-[0_20px_50px_rgba(0,0,0,0.2)] dark:shadow-[0_20px_50px_rgba(0,0,0,0.4)] transition-transform duration-500 group-hover/image:scale-[1.02]"
+                          />
+                          <div className="absolute inset-0 rounded-3xl ring-1 ring-inset ring-black/5 dark:ring-white/10" />
+                        </div>
+                      </div>
+                    )}
                     <div className="relative group rounded-[2.5rem] mb-6">
                       {/* Action Buttons */}
                       <MessageActions
@@ -466,7 +541,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({ accentColor, messages, isLoading, o
                         />
                       </div>
 
-                      {/* LAYER 3: Content (Text Only) */}
+                      {/* LAYER 3: Content (Text) */}
                       <div
                         className={`relative z-10 ${message.role === 'user' ? 'px-5 py-2.5' : 'px-7 py-4'} text-[14.5px] leading-relaxed ${message.role === 'user' ? 'text-white' : 'text-zinc-900 dark:text-zinc-100'
                           }`}
@@ -520,13 +595,68 @@ const ChatArea: React.FC<ChatAreaProps> = ({ accentColor, messages, isLoading, o
       </div>
 
       <div className="w-full max-w-3xl pt-2 animate-slideUp">
+        {/* Upload Status & Preview Indicator */}
+        {(uploadedFileName || isUploading) && (
+          <div className="flex items-end gap-3 mb-4 px-6 animate-fadeIn">
+            {uploadPreviewUrl && !isUploading && (
+              <div className="relative group/preview">
+                <img
+                  src={uploadPreviewUrl}
+                  alt="Preview"
+                  className="w-16 h-16 rounded-2xl object-cover border-2 border-white/20 shadow-lg"
+                />
+                <button
+                  onClick={() => { setUploadPreviewUrl(''); setUploadedFileName(''); setUploadedContext(''); }}
+                  className="absolute -top-2 -right-2 p-1 rounded-full bg-red-500 text-white opacity-0 group-hover/preview:opacity-100 transition-opacity shadow-lg"
+                >
+                  <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            )}
+            <div className="flex flex-col gap-1">
+              <div className="flex items-center gap-2">
+                <div className={`w-2 h-2 rounded-full ${isUploading ? 'bg-amber-500 animate-pulse' : 'bg-emerald-500'}`} />
+                <span className="text-xs font-bold text-zinc-500 uppercase tracking-wider">
+                  {isUploading ? `Xử lý ${uploadedFileName}...` : `Đã đính kèm`}
+                </span>
+                {!isUploading && !uploadPreviewUrl && (
+                  <button
+                    onClick={() => { setUploadedContext(''); setUploadedFileName(''); }}
+                    className="text-[10px] font-bold text-red-500 hover:text-red-400 uppercase tracking-tighter"
+                  >
+                    Xóa
+                  </button>
+                )}
+              </div>
+              {!isUploading && <span className="text-[11px] text-zinc-400 font-medium">{uploadedFileName}</span>}
+            </div>
+          </div>
+        )}
+
         <form onSubmit={handleSubmit} className="relative group mx-auto w-full">
           <div
             className={`absolute -inset-4 rounded-[4rem] bg-gradient-to-r opacity-0 group-focus-within:opacity-20 transition-all duration-1000 blur-[60px] ${theme.type === 'preset' ? theme.glow : ''}`}
             style={theme.type === 'custom' ? theme.glowStyle : {}}
           />
           <div className="relative flex items-end gap-3 p-5 rounded-[4rem] border border-white/20 dark:border-white/5 bg-white/10 dark:bg-black/40 backdrop-blur-[60px] shadow-[0_20px_40px_-12px_rgba(0,0,0,0.12)]">
-            <button type="button" className="p-4 text-zinc-500 hover:text-blue-500 transition-all transform hover:scale-110 active:scale-95">
+            {/* Hidden File Input */}
+            <input
+              type="file"
+              ref={fileInputRef}
+              onChange={handleFileUpload}
+              accept="image/*,.pdf"
+              className="hidden"
+            />
+            {/* Attach Button */}
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isUploading}
+              className={`p-4 text-zinc-500 hover:text-blue-500 transition-all transform hover:scale-110 active:scale-95 ${isUploading ? 'animate-pulse' : ''}`}
+              title="Đính kèm file (ảnh, PDF)"
+            >
               <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
               </svg>
@@ -537,8 +667,8 @@ const ChatArea: React.FC<ChatAreaProps> = ({ accentColor, messages, isLoading, o
               value={inputValue}
               onChange={(e) => setInputValue(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Elevate your thoughts..."
-              disabled={isLoading}
+              placeholder={uploadedContext ? "Viết câu hỏi về file đã đính kèm..." : "Elevate your thoughts..."}
+              disabled={isLoading || isUploading}
               className="flex-1 bg-transparent border-none outline-none focus:ring-0 text-zinc-800 dark:text-zinc-100 placeholder-zinc-500/30 py-4 resize-none max-h-48 text-[16px] overflow-hidden"
               style={{ boxShadow: 'none' }}
               onInput={(e) => {
@@ -564,7 +694,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({ accentColor, messages, isLoading, o
             {!isLoading && (
               <button
                 type="submit"
-                disabled={!inputValue.trim()}
+                disabled={!inputValue.trim() && !uploadedContext}
                 className={`p-4 rounded-full text-white hover:brightness-125 transition-all shadow-2xl disabled:opacity-5 disabled:grayscale active:scale-90 ${isPreset ? theme.primary : ''}`}
                 style={!isPreset ? theme.primaryStyle : {}}
               >
@@ -575,6 +705,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({ accentColor, messages, isLoading, o
             )}
           </div>
         </form>
+
         <p className="text-[10px] text-zinc-500/30 text-center uppercase tracking-[0.5em] font-black mt-8 mb-4 cursor-default">
           Phoenix AI • Transcendence
         </p>
