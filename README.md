@@ -47,16 +47,30 @@ graph TD
 
 ---
 
+## AI Model Pipeline
+
+Phoenix utilizes a specialized Multi-Agent architecture where each task is handled by the most suitable model:
+
+| Component | Model ID | Purpose |
+| :--- | :--- | :--- |
+| **Orchestrator** | `meta-llama/llama-4-scout` | Intent detection & tool routing (Stage 1) |
+| **Core Intelligence** | `qwen/qwen3-32b` | Main reasoning & conversational response (Stage 2) |
+| **UI Architect** | `google/gemini-3-flash` | High-speed React component generation |
+| **Code Expert** | `moonshotai/kimi-k2` | Documentation & complex code explanations |
+| **Search Queries** | `openai/gpt-oss-120b` | Keyword optimization & query generation |
+| **Knowledge Reranker**| `groq/compound-mini` | Search result scoring & filtering |
+| **Memory** | `text-embedding-004` | Vector embeddings for RAG (ChromaDB) |
+
+---
+
 ## Technology Stack
 
 | Component | Technology |
 | :--- | :--- |
 | **Frontend** | React 18, Vite, TypeScript, Tailwind CSS, Framer Motion |
 | **Backend** | Python 3.10+, FastAPI, Uvicorn |
-| **LLM Inference** | Groq (Qwen 32B, Llama 3/4), Google Gemini 3.0 Flash, Kimi |
-| **Vector DB** | ChromaDB (RAG), text-embedding-004 |
-| **Tools** | MCP Filesystem, DuckDuckGo Search, Custom Subprocess Python |
-| **Data** | Firebase Firestore (Optional) |
+| **Infrastructure** | Model Context Protocol (MCP), Docker Support |
+| **Database** | ChromaDB (Vector), Firebase (NoSQL - Optional) |
 
 ---
 
