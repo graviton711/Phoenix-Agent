@@ -102,8 +102,8 @@ Agent/
 
 ### 2. Backend Setup
 ```bash
-git clone <your-repo>
-cd Agent
+git clone https://github.com/graviton711/Phoenix-Agent.git
+cd Phoenix-Agent
 pip install -r requirements.txt
 # Create .env with GROQ_API_KEY and GOOGLE_API_KEY
 python src/api_server.py
