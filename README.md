@@ -105,7 +105,7 @@ Agent/
 git clone https://github.com/graviton711/Phoenix-Agent.git
 cd Phoenix-Agent
 pip install -r requirements.txt
-# Create .env with GROQ_API_KEY and GOOGLE_API_KEY
+# Create .env with GROQ_API_KEY, GOOGLE_API_KEY, and FIREBASE_SERVICE_ACCOUNT
 python src/api_server.py
 ```
 
