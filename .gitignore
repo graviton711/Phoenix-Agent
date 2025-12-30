@@ -1,0 +1,30 @@
+# Environment Variables
+.env
+.env.local
+.env.*
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+venv/
+.venv/
+env/
+pip-wheel-metadata/
+
+# Node/JS
+node_modules/
+npm-debug.log
+yarn-error.log
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+
+# Project Specific
+workspace/builds/
+chroma_db/
+.gemini/
+*.log
