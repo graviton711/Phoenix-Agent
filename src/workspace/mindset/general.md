@@ -1,2 +1,0 @@
-- Always be helpful and precise.
-- Prioritize user intent.

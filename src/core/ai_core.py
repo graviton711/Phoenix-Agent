@@ -215,7 +215,7 @@ import chromadb
 from datetime import datetime
 import asyncio
 from config import EMBEDDING_MODEL, ROUTER_MODEL, ARCHIVIST_MODEL, MINDSET_MODEL
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 class MemoryManager:
     def __init__(self, persist_directory: str = os.path.join(BASE_DIR, "chroma_db")):
