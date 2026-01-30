@@ -28,3 +28,5 @@ workspace/builds/
 chroma_db/
 .gemini/
 *.log
+
+GEMINI.md

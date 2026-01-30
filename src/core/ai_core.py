@@ -9,7 +9,8 @@ load_dotenv()
 GROQ_API_KEY = os.getenv('GROQ_API_KEY')
 GOOGLE_API_KEYS = os.getenv('GOOGLE_API_KEY', '').split(',')
 
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 import random
 import json
 
@@ -59,59 +60,47 @@ class GoogleGenAIAdapter:
                 # Configure Key for this request (or retry)
                 api_key = key_manager.get_key()
                 if not api_key: raise ValueError("No GOOGLE_API_KEY found")
-                genai.configure(api_key=api_key)
                 
-                # Parse arguments (copy kwargs to avoid mutation issues across retries if any)
-                # But here we pop, so we need to be careful. Ideally we prepare args outside loop.
-                # However, to keep this patch simple, we assume kwargs are fresh or we reconstruct.
-                # Actually, popping modifies kwargs. We should reconstruct it or use .get().
-                # Let's reconstruct configuration inside the loop? No, that's inefficient.
-                # Better: Parse once, then use inside.
+                # Instantiate Client
+                client = genai.Client(api_key=api_key)
                 
-                # RE-parsing logic to be safe across attempts:
+                # Parse arguments
                 call_kwargs = kwargs.copy()
                 system_instruction = call_kwargs.pop('system_instruction', None)
                 temperature = call_kwargs.pop('temperature', 0.7)
                 response_format = call_kwargs.pop('response_format', None)
                 
-                generation_config = {"temperature": temperature}
-                if response_format:
-                    if 'json_schema' in response_format:
-                        generation_config["response_mime_type"] = "application/json"
-                        generation_config["response_schema"] = response_format['json_schema']
-                    elif response_format.get('type') == 'json_object':
-                        generation_config["response_mime_type"] = "application/json"
-
-                # Instantiate model
-                gen_model = genai.GenerativeModel(
-                    model_name=model,
+                # Build Config
+                config = types.GenerateContentConfig(
+                    temperature=temperature,
                     system_instruction=system_instruction
                 )
                 
+                if response_format:
+                    if 'json_schema' in response_format:
+                        config.response_mime_type = "application/json"
+                        config.response_schema = response_format['json_schema']
+                    elif response_format.get('type') == 'json_object':
+                        config.response_mime_type = "application/json"
+
                 # Call generate
-                resp = gen_model.generate_content(
-                    contents,
-                    generation_config=generation_config
+                resp = client.models.generate_content(
+                    model=model,
+                    contents=contents,
+                    config=config
                 )
                 return GenAIResponseAdapter(resp)
                 
-            except (exceptions.ResourceExhausted, exceptions.PermissionDenied, exceptions.InternalServerError) as e:
-                # 429, 403, 500
+            except Exception as e:
+                # 429, 403, 500 handling implicit in catch-all for now
                 last_exception = e
                 print(f"[Warn] Key {api_key[:8]}... failed ({type(e).__name__}). Rotating to next key...")
-                continue
-            except Exception as e:
-                # Unknown error, maybe don't retry? Or retry strictly for robustness?
-                # Let's retry only on known Google API errors usually, but for "Antigravity" let's be aggressive.
-                last_exception = e
-                print(f"[Warn] Unexpected error with key {api_key[:8]}...: {e}. Rotating...")
                 continue
         
         # If we exit loop, we failed
         raise last_exception if last_exception else RuntimeError("Failed to generate content after all retries")
 
     def generate_content_stream(self, model, contents, **kwargs):
-        from google.api_core import exceptions
         
         max_retries = len(key_manager.keys) if key_manager.keys else 1
         last_exception = None
@@ -120,34 +109,29 @@ class GoogleGenAIAdapter:
             try:
                 api_key = key_manager.get_key()
                 if not api_key: raise ValueError("No GOOGLE_API_KEY found")
-                genai.configure(api_key=api_key)
+                
+                client = genai.Client(api_key=api_key)
                 
                 # Copy kwargs to preserve original args
                 call_kwargs = kwargs.copy()
                 system_instruction = call_kwargs.pop('system_instruction', None)
                 temperature = call_kwargs.pop('temperature', 0.7)
                 
-                generation_config = {"temperature": temperature}
-
-                gen_model = genai.GenerativeModel(
-                    model_name=model,
+                config = types.GenerateContentConfig(
+                    temperature=temperature,
                     system_instruction=system_instruction
                 )
-                
+
                 # Enable streaming
-                return gen_model.generate_content(
-                    contents,
-                    generation_config=generation_config,
-                    stream=True
+                return client.models.generate_content_stream(
+                    model=model,
+                    contents=contents,
+                    config=config
                 )
                 
-            except (exceptions.ResourceExhausted, exceptions.PermissionDenied, exceptions.InternalServerError) as e:
-                last_exception = e
-                print(f"[Warn] Stream Key {api_key[:8]}... failed ({type(e).__name__}). Rotating...")
-                continue
             except Exception as e:
                 last_exception = e
-                print(f"[Warn] Stream error with key {api_key[:8]}...: {e}. Rotating...")
+                print(f"[Warn] Stream Key {api_key[:8]}... failed ({type(e).__name__}). Rotating...")
                 continue
         
         raise last_exception if last_exception else RuntimeError("Failed to stream content after all retries")
@@ -240,7 +224,7 @@ class MemoryManager:
         
         # Load specialized topics/collections
         try:
-            with open(os.path.join(os.path.dirname(__file__), "topics.json"), "r") as f:
+            with open(os.path.join(BASE_DIR, "data", "topics.json"), "r") as f:
                 self.topics = json.load(f)
         except:
             self.topics = ["coding", "general"]
@@ -258,7 +242,7 @@ class MemoryManager:
         self.collections[topic] = self.client.get_or_create_collection(name=topic)
         # Persist
         try:
-            with open(os.path.join(os.path.dirname(__file__), "topics.json"), "w") as f:
+            with open(os.path.join(BASE_DIR, "data", "topics.json"), "w") as f:
                 json.dump(self.topics, f, indent=2)
         except Exception as e:
             print(f"WARN: Failed to save topics.json: {e}")
@@ -267,14 +251,14 @@ class MemoryManager:
         key = key_manager.get_key()
         if not key: return []
         try:
-            genai.configure(api_key=key)
+            client = genai.Client(api_key=key)
             result = await asyncio.to_thread(
-                genai.embed_content,
+                client.models.embed_content,
                 model=EMBEDDING_MODEL,
-                content=text,
-                task_type="retrieval_document"
+                contents=text,
+                config=types.EmbedContentConfig(task_type="RETRIEVAL_DOCUMENT")
             )
-            return result['embedding']
+            return result.embeddings[0].values
         except Exception as e:
             print(f"ERROR: Embedding failed: {e}")
             return []

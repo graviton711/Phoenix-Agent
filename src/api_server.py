@@ -16,6 +16,7 @@ import asyncio
 import logging
 from datetime import datetime
 from typing import Optional, List, Dict, Any, Callable
+from contextlib import asynccontextmanager
 
 logger = logging.getLogger(__name__)
 
@@ -25,10 +26,10 @@ from fastapi.responses import StreamingResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from dotenv import load_dotenv
-from ui_builder import AppBuilder
+from modules.ui_builder import AppBuilder
 from config import MAIN_MODEL_ID, TOOL_DETECTION_MODEL, EMBEDDING_MODEL
-from file_processor import process_file, get_file_type, generate_summary
-from document_rag import (
+from modules.file_processor import process_file, get_file_type, generate_summary
+from modules.document_rag import (
     index_uploaded_file, 
     retrieve_relevant_chunks, 
     has_indexed_documents,
@@ -43,7 +44,7 @@ from firebase_admin import credentials, firestore
 
 # --- MCP CLIENT ---
 try:
-    from mcp_client import get_mcp_manager, initialize_mcp_servers
+    from integrations.mcp_client import get_mcp_manager, initialize_mcp_servers
     MCP_AVAILABLE = True
 except ImportError:
     print("WARN: MCP client not found. MCP tools disabled.")
@@ -53,7 +54,8 @@ except ImportError:
 load_dotenv()
 
 # --- IMPORTS FOR RAG ---
-import google.generativeai as genai
+# --- IMPORTS FOR RAG ---
+# google.generativeai removed in favor of google-genai in ai_core.py
 try:
     import chromadb
     from chromadb.config import Settings
@@ -89,7 +91,7 @@ key_manager = KeyManager(GOOGLE_API_KEYS)
 
 # --- RAG / MEMORY MANAGER ---
 # --- RAG / MEMORY MANAGER ---
-from ai_core import MemoryManager, MindsetManager
+from core.ai_core import MemoryManager, MindsetManager
 
 memory_manager = MemoryManager()
 mindset_manager = MindsetManager()
@@ -111,8 +113,23 @@ try:
 except Exception as e:
     print(f"WARN: Firebase init error: {e}")
 
+# --- LIFESPAN ---
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Manage application lifespan (startup/shutdown)."""
+    # Startup: Initialize MCP
+    if MCP_AVAILABLE:
+        try:
+            await initialize_mcp_servers()
+            print("INFO: MCP servers initialized.")
+        except Exception as e:
+            print(f"WARN: Failed to initialize MCP servers: {e}")
+    
+    yield
+    # Shutdown logic (if needed) can go here
+
 # --- APP ---
-app = FastAPI(title="Phoenix Chat Qwen")
+app = FastAPI(title="Phoenix Chat Qwen", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -134,16 +151,7 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
 print(f"INFO: Static uploads mounted at /uploads from {UPLOAD_DIR}")
 
-# --- MCP STARTUP ---
-@app.on_event("startup")
-async def startup_event():
-    """Initialize MCP servers on startup."""
-    if MCP_AVAILABLE:
-        try:
-            await initialize_mcp_servers()
-            print("INFO: MCP servers initialized.")
-        except Exception as e:
-            print(f"WARN: Failed to initialize MCP servers: {e}")
+# --- MCP STARTUP REMOVED (Moved to lifespan) ---
 
 # --- MODELS ---
 class Message(BaseModel):
@@ -265,15 +273,15 @@ def sanitize_math_output(text: str) -> str:
     return re.sub(pattern, clean_match, text)
 
 # --- TOOLS ---
-from duckduckgo_search import DDGS
-from search_engine import search_engine
+from ddgs import DDGS
+from modules.search_engine import search_engine
 import subprocess
 import tempfile
 
 async def async_web_search(query: str, max_results: int = 3, callback: Optional[Callable[[str], None]] = None) -> str:
     """Performs an advanced web search with AI-powered reranking and summarization."""
     try:
-        from search_engine import search_engine
+        from modules.search_engine import search_engine
         # Use the advanced search engine for better results
         result = await search_engine.search_and_rerank(query, initial_fetch=10, top_k=max_results, stream_callback=callback)
         return result
@@ -424,7 +432,7 @@ async def execute_mcp_file(action: str, path: str, content: str = "") -> str:
 async def build_ui_project(prompt: str, project_name: str = "phoenix_app", callback: Optional[Callable[[str], None]] = None) -> Dict[str, Any]:
     """Invokes the UI Builder module to generate a multi-file web app. Returns structured data."""
     try:
-        from ui_builder import AppBuilder
+        from modules.ui_builder import AppBuilder
         builder = AppBuilder(project_name)
         
         # Call builder.build directly as it is async
@@ -654,7 +662,7 @@ async def stream_chat_generator(user_message: str, session_id: str):
     session.messages.append(user_msg_obj)
 
     try:
-        yield f"data: {json.dumps({'sessionId': session_id, 'type': 'start'})}\n\n"
+        yield "data: " + json.dumps({'sessionId': session_id, 'type': 'start'}) + "\n\n"
         
         # === STAGE 1: Unified Tool Detection + RAG Decision ===
         recent_context = " | ".join([m.content[:100] for m in session.messages[-4:] if m.content])
@@ -663,7 +671,7 @@ async def stream_chat_generator(user_message: str, session_id: str):
         if has_indexed_documents(session_id):
             recent_context = f"[HINT: A file is attached to this session] | {recent_context}"
         
-        yield f"data: {json.dumps({'type': 'reasoning', 'delta': '> Analyzing intent...'})}\n\n"
+        yield "data: " + json.dumps({'type': 'reasoning', 'delta': '> Analyzing intent...'}) + "\n\n"
         tool_intent = await detect_tool_intent(user_message, recent_context)
         
         action = tool_intent.get("action", "none")
@@ -702,11 +710,11 @@ async def stream_chat_generator(user_message: str, session_id: str):
         
         # === Execute Tool if needed ===
         if action != "none":
-            yield f"data: {json.dumps({'type': 'reasoning', 'delta': f'\\n> Tool detected: {action}\\n'})}\n\n"
+            yield "data: " + json.dumps({'type': 'reasoning', 'delta': '\n> Tool detected: ' + action + '\n'}) + "\n\n"
             
             if action == "search":
                 query = params.get("query", user_message)
-                yield f"data: {json.dumps({'type': 'reasoning', 'delta': f'> Searching: {query}...\\n'})}\n\n"
+                yield "data: " + json.dumps({'type': 'reasoning', 'delta': '> Searching: ' + query + '...\n'}) + "\n\n"
                 
                 # Streaming callback for search
                 stream_queue = asyncio.Queue()
@@ -723,9 +731,9 @@ async def stream_chat_generator(user_message: str, session_id: str):
                             # Filter or format the search delta for UI
                             delta = chunk[8:]
                             if delta:
-                                yield f"data: {json.dumps({'type': 'reasoning', 'delta': f'{delta}\n'})}\n\n"
+                                yield "data: " + json.dumps({'type': 'reasoning', 'delta': delta + '\n'}) + "\n\n"
                         else:
-                            yield f"data: {json.dumps({'type': 'reasoning', 'delta': f'{chunk}\n'})}\n\n"
+                            yield "data: " + json.dumps({'type': 'reasoning', 'delta': chunk + '\n'}) + "\n\n"
                     except asyncio.TimeoutError:
                         if search_task.done(): break
                         continue
@@ -734,14 +742,14 @@ async def stream_chat_generator(user_message: str, session_id: str):
                 
             elif action == "python":
                 code = params.get("code", "")
-                yield f"data: {json.dumps({'type': 'reasoning', 'delta': '> Executing Python...\\n'})}\n\n"
+                yield "data: " + json.dumps({'type': 'reasoning', 'delta': '> Executing Python...\n'}) + "\n\n"
                 tool_result = await asyncio.to_thread(execute_python, code)
-                yield f"data: {json.dumps({'type': 'execution_result', 'delta': tool_result + '\\n'})}\n\n"
+                yield "data: " + json.dumps({'type': 'execution_result', 'delta': tool_result + '\n'}) + "\n\n"
                 
             elif action == "build":
                 project_name = params.get("project_name", "phoenix_app")
                 description = params.get("description", "")
-                yield f"data: {json.dumps({'type': 'reasoning', 'delta': f'\\n> Building UI: {project_name}...\\n'})}\n\n"
+                yield "data: " + json.dumps({'type': 'reasoning', 'delta': '\n> Building UI: ' + project_name + '...\n'}) + "\n\n"
                 
                 # Streaming callback for the build process
                 def build_stream_callback(text: str):
@@ -782,9 +790,9 @@ async def stream_chat_generator(user_message: str, session_id: str):
                         # Use a timeout so we don't block forever if task dies
                         chunk = await asyncio.wait_for(stream_queue.get(), timeout=0.1)
                         if chunk.startswith("[SPEC]"):
-                            yield f"data: {json.dumps({'type': 'reasoning', 'delta': chunk[6:]})}\n\n"
+                            yield "data: " + json.dumps({'type': 'reasoning', 'delta': chunk[6:]}) + "\n\n"
                         else:
-                            yield f"data: {json.dumps({'type': 'reasoning', 'delta': chunk})}\n\n"
+                            yield "data: " + json.dumps({'type': 'reasoning', 'delta': chunk}) + "\n\n"
                     except asyncio.TimeoutError:
                         if build_task.done(): break
                         continue
@@ -804,21 +812,21 @@ async def stream_chat_generator(user_message: str, session_id: str):
                 file_type = params.get("type", "list")
                 path = params.get("path", ".")
                 content = params.get("content", "")
-                yield f"data: {json.dumps({'type': 'reasoning', 'delta': f'> MCP File: {file_type} {path}...\\n'})}\n\n"
+                yield "data: " + json.dumps({'type': 'reasoning', 'delta': '> MCP File: ' + file_type + ' ' + path + '...\n'}) + "\n\n"
                 tool_result = await execute_mcp_file(file_type, path, content)
-                yield f"data: {json.dumps({'type': 'execution_result', 'delta': tool_result + '\\n'})}\n\n"
+                yield "data: " + json.dumps({'type': 'execution_result', 'delta': tool_result + '\n'}) + "\n\n"
         
             elif action == "update_mindset":
                 operation = params.get("operation", "ADD")
                 match = params.get("match", "")
                 content = params.get("content", "")
-                yield f"data: {json.dumps({'type': 'reasoning', 'delta': '> Updating mindset...'})}\n\n"
+                yield "data: " + json.dumps({'type': 'reasoning', 'delta': '> Updating mindset...'}) + "\n\n"
                 tool_result = await execute_update_mindset(operation, match, content)
             
             elif action == "save_knowledge":
                 knowledge_content = params.get("content", "")
                 topic = params.get("topic", "general")
-                yield f"data: {json.dumps({'type': 'reasoning', 'delta': '> Saving to memory...'})}\n\n"
+                yield "data: " + json.dumps({'type': 'reasoning', 'delta': '> Saving to memory...'}) + "\n\n"
                 tool_result = await execute_save_knowledge(knowledge_content, topic)
 
         # === STAGE 2: Response Generation (using Qwen, streaming) ===
@@ -864,7 +872,7 @@ async def stream_chat_generator(user_message: str, session_id: str):
                         # Direct reasoning field support
                         clean_reasoning = clean_tool_tags(reasoning_delta) if sent_reasoning_len == 0 else reasoning_delta
                         if clean_reasoning.strip() or reasoning_delta.strip():
-                            yield f"data: {json.dumps({'type': 'reasoning', 'delta': clean_reasoning})}\n\n"
+                            yield "data: " + json.dumps({'type': 'reasoning', 'delta': clean_reasoning}) + "\n\n"
                             final_reasoning += clean_reasoning
                         sent_reasoning_len += len(reasoning_delta)
                         # WE DON'T BREAK OR CONTINUE, just in case there's ALSO content (unlikely but safe)
@@ -911,7 +919,7 @@ async def stream_chat_generator(user_message: str, session_id: str):
                             # Reasoning is less sensitive but let's keep it clean
                             clean_diff = clean_tool_tags(diff) if sent_reasoning_len == 0 else diff
                             if clean_diff.strip() or diff.strip():
-                                yield f"data: {json.dumps({'type': 'reasoning', 'delta': clean_diff})}\n\n"
+                                yield "data: " + json.dumps({'type': 'reasoning', 'delta': clean_diff}) + "\n\n"
                                 final_reasoning += clean_diff
                             sent_reasoning_len = len(val)
                         
@@ -935,7 +943,7 @@ async def stream_chat_generator(user_message: str, session_id: str):
                                 else:
                                     clean_diff = clean_tool_tags(diff) if sent_content_len == 0 else diff
                                     if clean_diff.strip() or diff.strip():
-                                        yield f"data: {json.dumps({'type': 'content', 'delta': clean_diff})}\n\n"
+                                        yield "data: " + json.dumps({'type': 'content', 'delta': clean_diff}) + "\n\n"
                                         final_content += clean_diff
                                     sent_content_len = len(post_think)
                     
@@ -945,7 +953,7 @@ async def stream_chat_generator(user_message: str, session_id: str):
                         val = r_match.group(1).replace('\\"', '"').replace('\\n', '\n').replace('\\\\', '\\')
                         if len(val) > sent_reasoning_len:
                             diff = val[sent_reasoning_len:]
-                            yield f"data: {json.dumps({'type': 'reasoning', 'delta': diff})}\n\n"
+                            yield "data: " + json.dumps({'type': 'reasoning', 'delta': diff}) + "\n\n"
                             final_reasoning += diff
                             sent_reasoning_len = len(val)
                     
@@ -956,7 +964,7 @@ async def stream_chat_generator(user_message: str, session_id: str):
                         if len(val) > sent_content_len:
                             diff = val[sent_content_len:]
                             if not (final_content.strip().endswith(diff.strip()) and len(diff.strip()) > 2):
-                                yield f"data: {json.dumps({'type': 'content', 'delta': diff})}\n\n"
+                                yield "data: " + json.dumps({'type': 'content', 'delta': diff}) + "\n\n"
                                 final_content += diff
                             sent_content_len = len(val)
                     
@@ -972,33 +980,33 @@ async def stream_chat_generator(user_message: str, session_id: str):
                             else:
                                 clean_diff = clean_tool_tags(diff) if sent_content_len == 0 else diff
                                 if clean_diff.strip() or diff.strip():
-                                    yield f"data: {json.dumps({'type': 'content', 'delta': clean_diff})}\n\n"
+                                    yield "data: " + json.dumps({'type': 'content', 'delta': clean_diff}) + "\n\n"
                                     final_content += clean_diff
                                 sent_content_len = len(full_text)
 
                 if is_tool_triggered:
                     tool_result = ""
                     if tool_type == "search":
-                        yield f"data: {json.dumps({'type': 'reasoning', 'delta': f'\\n> Đang tìm kiếm: {tool_query}...\\n'})}\n\n"
+                        yield "data: " + json.dumps({'type': 'reasoning', 'delta': '\n> Đang tìm kiếm: ' + tool_query + '...\n'}) + "\n\n"
                         tool_result = await asyncio.to_thread(web_search, tool_query)
                     elif tool_type == "python":
-                        yield f"data: {json.dumps({'type': 'reasoning', 'delta': '> Đang thực thi mã Python...\\n'})}\n\n"
+                        yield "data: " + json.dumps({'type': 'reasoning', 'delta': '> Đang thực thi mã Python...\n'}) + "\n\n"
                         tool_result = await asyncio.to_thread(execute_python, tool_query)
                         sep = f"\n{'-'*20} [TURN {turn}] {'-'*20}\n" if turn > 1 else ""
-                        yield f"data: {json.dumps({'type': 'execution_result', 'delta': sep + tool_result + '\n'})}\n\n"
+                        yield "data: " + json.dumps({'type': 'execution_result', 'delta': sep + tool_result + '\n'}) + "\n\n"
                     elif tool_type == "build":
                         p_name, p_prompt = tool_query.split("|", 1)
-                        yield f"data: {json.dumps({'type': 'reasoning', 'delta': f'> Khởi tạo module UI Builder: {p_name}...\\n'})}\n\n"
+                        yield "data: " + json.dumps({'type': 'reasoning', 'delta': '> Khởi tạo module UI Builder: ' + p_name + '...\n'}) + "\n\n"
                         build_result = await asyncio.to_thread(build_ui_project, p_prompt.strip(), p_name.strip())
                         
                         if build_result.get("success"):
                             # Send progress for each file (for animation)
                             for filename, content in build_result['files_map'].items():
-                                yield f"data: {json.dumps({'type': 'build_file_progress', 'filename': filename, 'content': content, 'projectName': build_result['project_name']})}\n\n"
+                                yield "data: " + json.dumps({'type': 'build_file_progress', 'filename': filename, 'content': content, 'projectName': build_result['project_name']}) + "\n\n"
                                 import time; time.sleep(0.1)  # Small delay for visual effect
                             
                             # Send final structured build result
-                            yield f"data: {json.dumps({'type': 'tool_build_result', 'projectName': build_result['project_name'], 'files': build_result['files_map']})}\n\n"
+                            yield "data: " + json.dumps({'type': 'tool_build_result', 'projectName': build_result['project_name'], 'files': build_result['files_map']}) + "\n\n"
                             tool_result = f"SUCCESS: Project '{build_result['project_name']}' created. Files: {', '.join(build_result['modified_files'])}"
                         else:
                             tool_result = f"BUILD ERROR: {build_result.get('error', 'Unknown error')}"
@@ -1008,9 +1016,9 @@ async def stream_chat_generator(user_message: str, session_id: str):
                         action = parts[0] if len(parts) > 0 else ""
                         path = parts[1] if len(parts) > 1 else ""
                         content = parts[2] if len(parts) > 2 else ""
-                        yield f"data: {json.dumps({'type': 'reasoning', 'delta': f'> MCP File: {action} {path}...\\n'})}\n\n"
+                        yield "data: " + json.dumps({'type': 'reasoning', 'delta': '> MCP File: ' + action + ' ' + path + '...\n'}) + "\n\n"
                         tool_result = await execute_mcp_file(action, path, content)
-                        yield f"data: {json.dumps({'type': 'execution_result', 'delta': tool_result + '\\n'})}\n\n"
+                        yield "data: " + json.dumps({'type': 'execution_result', 'delta': sep + tool_result + '\n'}) + "\n\n"
 
                     msgs.append({"role": "assistant", "content": full_text})
                     msgs.append({"role": "user", "content": f"KẾT QUẢ {tool_type.upper()}:\n\n{tool_result}\n\nLƯU Ý: Nếu kết quả có lỗi hoặc chưa đạt yêu cầu, hãy tự sửa lỗi bằng cách gọi lại công cụ hoặc trả lời trực tiếp."})

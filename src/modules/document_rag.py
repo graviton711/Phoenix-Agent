@@ -17,7 +17,8 @@ import chromadb
 from rank_bm25 import BM25Okapi
 
 # Embedding
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -105,16 +106,16 @@ async def batch_embed(texts: List[str], batch_size: int = 20) -> List[List[float
         if not key:
             raise ValueError("No Google API key configured")
         
-        genai.configure(api_key=key)
+        client = genai.Client(api_key=key)
         
         try:
             result = await asyncio.to_thread(
-                genai.embed_content,
+                client.models.embed_content,
                 model=EMBEDDING_MODEL,
-                content=batch,
-                task_type="retrieval_document"
+                contents=batch,
+                config=types.EmbedContentConfig(task_type="RETRIEVAL_DOCUMENT")
             )
-            all_embeddings.extend(result['embedding'])
+            all_embeddings.extend([e.values for e in result.embeddings])
         except Exception as e:
             print(f"Batch embed error: {e}")
             # Fallback: empty embeddings
@@ -131,16 +132,16 @@ async def embed_query(text: str) -> List[float]:
     if not key:
         return [0.0] * 768
     
-    genai.configure(api_key=key)
+    client = genai.Client(api_key=key)
     
     try:
         result = await asyncio.to_thread(
-            genai.embed_content,
+            client.models.embed_content,
             model=EMBEDDING_MODEL,
-            content=text,
-            task_type="retrieval_query"
+            contents=text,
+            config=types.EmbedContentConfig(task_type="RETRIEVAL_QUERY")
         )
-        return result['embedding']
+        return result.embeddings[0].values
     except Exception as e:
         print(f"Query embed error: {e}")
         return [0.0] * 768

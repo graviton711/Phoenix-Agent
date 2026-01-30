@@ -1,132 +1,257 @@
-![Phoenix Branding Logo](assets/branding.png)
+# Phoenix AI Agent
 
-# PHOENIX AI CHAT
-**The Ultimate Agentic Workspace for Next-Gen Creativity and Intelligence**
+<p align="center">
+  <a href="https://github.com/graviton711/Phoenix-Agent/releases"><img src="https://img.shields.io/github/v/release/graviton711/Phoenix-Agent?style=for-the-badge&color=blue" alt="GitHub Release"></a>
+  <img src="https://img.shields.io/badge/AI_Models-8+-green?style=for-the-badge" alt="8+ AI Models">
+  <img src="https://img.shields.io/badge/RAG_Engine-Hybrid-purple?style=for-the-badge" alt="Hybrid RAG">
+  <img src="https://img.shields.io/badge/python-3.12-yellow?style=for-the-badge&logo=python&logoColor=white" alt="Python 3.12">
+  <a href="https://github.com/graviton711/Phoenix-Agent/blob/main/LICENSE"><img src="https://img.shields.io/github/license/graviton711/Phoenix-Agent?style=for-the-badge&color=green" alt="License"></a>
+</p>
 
-Phoenix AI is a sophisticated, multi-agent artificial intelligence platform designed for high-performance task execution, real-time information retrieval, and automated UI generation. Powered by a hybrid engine of the world's most advanced LLMs, Phoenix is more than just a chatbot—it is an intelligent OS for your ideas.
+<p align="center">
+  <a href="https://fastapi.tiangolo.com/"><img src="https://img.shields.io/badge/FastAPI-0.109-009688?style=flat-square&logo=fastapi&logoColor=white" alt="FastAPI"></a>
+  <a href="https://react.dev/"><img src="https://img.shields.io/badge/React-18-61DAFB?style=flat-square&logo=react&logoColor=black" alt="React 18"></a>
+  <a href="https://github.com/graviton711/Phoenix-Agent/stargazers"><img src="https://img.shields.io/github/stars/graviton711/Phoenix-Agent?style=flat-square&logo=github" alt="GitHub stars"></a>
+</p>
 
----
+An advanced multi-agent AI platform with RAG, MCP integration, and autonomous UI generation capabilities.
 
-## Key Features
+<p align="center">
+  <img src="assets/branding.png" alt="Phoenix AI Agent" width="800">
+</p>
 
-*   **Multi-Agent Orchestration**: Implements a 2-stage reasoning pipeline for precise intent detection and high-quality responses.
-*   **Advanced Web Intelligence**: Real-time web search via DuckDuckGo with AI reranking and deep summarization.
-*   **Autonomous UI Builder**: Generates full-stack React components and multi-file projects from a single prompt.
-*   **Integrated Code Interpreter**: Safely executes Python code to solve math, data analysis, and logic problems.
-*   **Visual Perception**: Multimodal capabilities powered by **Gemma 3 Vision** with a "Hot Buffer" for instant image recognition and analysis.
-*   **Robust Knowledge Retrieval**: Hybrid RAG system combining Vector Search (ChromaDB) and Keyword Search (BM25) with Reciprocal Rank Fusion.
-*   **Self-Healing Database**: Automatic detection and recovery handling for vector index corruption.
-*   **Global Recursive Memory**: Cross-session long-term memory with dynamic topic creation and archival.
-*   **MCP Integration**: Connected to the Model Context Protocol (MCP) for direct filesystem and tool interaction.
+## What's New in v2.0
 
----
+### Double-Strike Reasoning Engine
 
-## Operational Flow
+The flagship feature is the **2-Stage Reasoning Pipeline** - an AI-powered intent detection system that routes requests to specialized agents for maximum accuracy.
 
-Phoenix uses a proprietary "Double-Strike" logic to ensure every interaction is grounded and accurate.
-
-```mermaid
-graph TD
-    User([User Message]) --> Stage1{Stage 1: Intent Detection}
-    Stage1 -- "Search Needed" --> DDG[DuckDuckGo Search]
-    DDG --> Rerank[AI Reranking & Summarization]
-    Rerank --> Context((Contextual Knowledge))
-    
-    Stage1 -- "Python Needed" --> Interpreter[Python Code Interpreter]
-    Interpreter --> LogicResult[Execution Result]
-    LogicResult --> Context
-    
-    Stage1 -- "UI Build Needed" --> Builder[Architect & Analyst Agents]
-    Builder --> Files[React Project Creation]
-    Files --> Context
-    
-    Context --> Stage2[Stage 2: Main Response - Qwen 32B]
-    Stage2 --> Stream((Streaming Response to User))
-    
-    subgraph "Knowledge Store"
-    RAG[(ChromaDB Memory)] <--> Stage2
-    end
+```
++----------------------------------------------------------------------------------------+
+|  PHOENIX AGENT - INTELLIGENT ORCHESTRATION                                             |
++----------------------------------------------------------------------------------------+
+|                                                                                        |
+|  STAGE 1: INTENT DETECTION (Llama 4 Scout)                                             |
+|     Analyzes user message for:                                                         |
+|       • Search Intent → Web Intelligence Engine                                        |
+|       • Code Intent → Python Interpreter                                               |
+|       • UI Build Intent → Architect + Analyst Agents                                   |
+|       • Vision Intent → Gemma 3 Vision                                                 |
+|       • Memory Intent → ChromaDB RAG                                                   |
+|                                                                                        |
+|  STAGE 2: MAIN RESPONSE (Qwen 32B)                                                     |
+|     Synthesizes all context into:                                                      |
+|       • Streaming markdown response                                                    |
+|       • Code artifacts with live preview                                               |
+|       • Automatic memory archival                                                      |
+|                                                                                        |
+|  SUPPORTED TOOLS:                                                                      |
+|     [Search] [Code] [UI Build] [Vision] [RAG] [MCP Filesystem]                         |
+|                                                                                        |
++----------------------------------------------------------------------------------------+
 ```
 
----
+### How the Pipeline Works
 
-## AI Model Pipeline
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  1. USER REQUEST                                                │
+│     "Search for the latest AI news and summarize"               │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  2. INTENT DETECTOR (Llama 4 Scout - 500ms avg)                 │
+│     • Flags: search=true, code=false, ui=false                  │
+│     • Routes to: Web Intelligence Engine                        │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  3. SPECIALIZED AGENT EXECUTION                                 │
+│     • DuckDuckGo Multi-Query Search                             │
+│     • AI Reranking (Compound Mini)                              │
+│     • Deep Content Summarization (Kimi K2)                      │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  4. MAIN RESPONSE SYNTHESIS (Qwen 32B)                          │
+│     Context + RAG Memory → Streaming Response → Memory Archival │
+└─────────────────────────────────────────────────────────────────┘
+```
 
-Phoenix utilizes a specialized Multi-Agent architecture where each task is handled by the most suitable model:
+### Multi-Model Architecture
+
+Phoenix utilizes specialized models for each task:
 
 | Component | Model ID | Purpose |
-| :--- | :--- | :--- |
-| **Orchestrator** | `meta-llama/llama-4-scout` | Intent detection & tool routing (Stage 1) |
-| **Core Intelligence** | `qwen/qwen3-32b` | Main reasoning & conversational response (Stage 2) |
+|-----------|----------|---------|
+| **Orchestrator** | `meta-llama/llama-4-scout` | Intent detection & tool routing |
+| **Core Intelligence** | `qwen/qwen3-32b` | Main reasoning & conversational response |
 | **Vision Engine** | `gemma-3-27b-it` | Image analysis & text extraction |
-| **UI Architect** | `google/gemini-3-flash` | High-speed React component generation |
-| **Archivist** | `moonshotai/kimi-k2` | Long-term memory archival & knowledge structuring |
-| **Code Expert** | `moonshotai/kimi-k2` | Documentation & complex code explanations |
-| **Search Queries** | `openai/gpt-oss-120b` | Keyword optimization & query generation |
-| **Knowledge Reranker**| `groq/compound-mini` | Search result scoring & filtering |
-| **Memory** | `text-embedding-004` | Vector embeddings for RAG (ChromaDB) |
+| **UI Architect** | `google/gemini-3-flash` | React component generation |
+| **Archivist** | `moonshotai/kimi-k2` | Long-term memory archival |
+| **Code Expert** | `moonshotai/kimi-k2` | Documentation & code explanations |
+| **Search Queries** | `openai/gpt-oss-120b` | Query optimization |
+| **Knowledge Reranker** | `groq/compound-mini` | Search result scoring |
+| **Embeddings** | `text-embedding-004` | Vector embeddings for RAG |
 
----
+## Features
 
-## Technology Stack
+- **8+ AI Models** - Specialized models for each task type
+- **Hybrid RAG** - Vector Search (ChromaDB) + BM25 with Reciprocal Rank Fusion
+- **MCP Integration** - Model Context Protocol for filesystem & tool access
+- **Multi-Modal Vision** - Image/PDF analysis via Gemma 3 Vision
+- **Autonomous UI Builder** - Full React project generation from prompts
+- **Self-Healing DB** - Automatic corruption detection and recovery
+- **Global Memory** - Cross-session long-term memory with topic routing
 
-| Component | Technology |
-| :--- | :--- |
+<details>
+<summary><b>Core Capabilities (7)</b></summary>
+
+| # | Capability | Description |
+|---|------------|-------------|
+| 1 | **Web Intelligence** | Real-time search via DuckDuckGo with AI reranking |
+| 2 | **Code Interpreter** | Safe Python execution for math/logic problems |
+| 3 | **UI Generation** | Multi-file React projects from single prompt |
+| 4 | **Vision Analysis** | Image OCR and diagram understanding |
+| 5 | **RAG Memory** | Hybrid vector+keyword retrieval system |
+| 6 | **MCP Tools** | Filesystem operations, GitHub integration |
+| 7 | **Self-Reflection** | Automatic mindset updates from user feedback |
+
+</details>
+
+<details>
+<summary><b>Supported Tech Stacks</b></summary>
+
+| Category | Technologies |
+|----------|--------------|
 | **Frontend** | React 18, Vite, TypeScript, Tailwind CSS, Framer Motion |
-| **Backend** | Python 3.10+, FastAPI, Uvicorn |
-| **Infrastructure** | Model Context Protocol (MCP), Docker Support |
+| **Backend** | Python 3.12+, FastAPI, Uvicorn |
+| **Infrastructure** | MCP, Docker Support |
 | **Database** | ChromaDB (Vector), Firebase (NoSQL - Optional) |
 
----
+</details>
 
-## 📂 Project Structure
+## Installation
 
-```bash
-Agent/
-├── phoenix-ai-chat-ui/    # Frontend React Application
-│   ├── src/               # Component Logic
-│   └── components/        # Premium UI Elements
-├── src/                   # Backend Python Engine
-│   ├── api_server.py      # FastAPI Main Entry
-│   ├── ai_core.py         # Multi-Model Adapter
-│   ├── search_engine.py   # Agentic Search Pipeline
-│   ├── ui_builder.py      # Automated UI Factory
-│   └── config.py          # Central Model Configuration
-├── prompts/               # Engineering System Prompts
-└── workspace/             # AI-Generated Builds & File Storage
+### Prerequisites
+- Python 3.12+
+- Node.js 18+
+- API Keys: `GROQ_API_KEY`, `GOOGLE_API_KEY`
+
+### 1. One-Click Setup (Windows)
+
+```powershell
+.\setup_env.bat
 ```
 
----
+### 2. Manual Installation
 
-## ⚙️ Installation & Setup
-
-### 1. Requirements
-*   Python 3.10+
-*   Node.js 18+
-*   API Keys: Groq, Google Generative AI (Gemini)
-
-### 2. Backend Setup
+**Backend:**
 ```bash
+# Clone repository
 git clone https://github.com/graviton711/Phoenix-Agent.git
 cd Phoenix-Agent
+
+# Create virtual environment
+python -m venv .venv
+.venv\Scripts\activate  # Windows
+# source .venv/bin/activate  # Linux/Mac
+
+# Install dependencies
 pip install -r requirements.txt
-# Create .env with GROQ_API_KEY, GOOGLE_API_KEY, and FIREBASE_SERVICE_ACCOUNT
+
+# Configure environment
+# Create .env with GROQ_API_KEY, GOOGLE_API_KEY
+
+# Start server
 python src/api_server.py
 ```
 
-### 3. Frontend Setup
+**Frontend:**
 ```bash
 cd phoenix-ai-chat-ui
 npm install
 npm run dev
 ```
 
----
+## Usage
 
-## 🎨 Branding & Aesthetic
-Phoenix AI follows a **"Deep Tech / Amber Obsidian"** design language, emphasizing glassmorphism, subtle micro-animations, and high-contrast accessibility.
+### Chat Naturally
+
+Just describe what you need:
+
+```
+Search for the latest AI research papers on RAG
+
+Build a landing page for my SaaS product
+
+Analyze this image and extract all text
+
+Create a dashboard for tracking metrics
+```
+
+### How It Works
+
+1. **You ask** - Natural language request
+2. **Intent Detection** - Llama 4 Scout analyzes and routes
+3. **Specialized Agents** - Execute search, code, vision, or UI tasks
+4. **Synthesis** - Qwen 32B combines all context into response
+5. **Memory** - Important information archived for future sessions
+
+## Project Structure
+
+```
+Phoenix-Agent/
+├── phoenix-ai-chat-ui/    # Frontend React Application
+├── src/                   # Backend Python Engine
+│   ├── api_server.py      # FastAPI Main Entry (Gateway)
+│   ├── config.py          # Central Model Configuration
+│   ├── core/              # Core Logic
+│   │   └── ai_core.py     # Multi-Model Adapter
+│   ├── modules/           # Specialized Modules
+│   │   ├── search_engine.py   # Agentic Search Pipeline
+│   │   ├── document_rag.py    # Hybrid RAG Engine
+│   │   ├── ui_builder.py      # Automated UI Factory
+│   │   └── file_processor.py  # Vision & PDF Processing
+│   ├── integrations/      # External Connections
+│   │   └── mcp_client.py      # MCP Protocol Implementation
+│   └── data/              # Static & Dynamic Data
+│       └── topics.json        # Memory Topic Routing
+├── prompts/               # Engineering System Prompts
+├── workspace/             # AI-Generated Builds & File Storage
+├── requirements.txt       # Python Dependencies
+└── setup_env.bat          # Windows Auto-Setup Script
+```
+
+## Configuration
+
+Create a `.env` file in the root directory:
+
+```env
+# Required
+GROQ_API_KEY=gsk_...
+GOOGLE_API_KEY=AIzaSy...
+
+# Optional
+FIREBASE_SERVICE_ACCOUNT={"type": "service_account", ...}
+```
+
+## Branding & Aesthetic
+
+Phoenix AI follows a **"Deep Tech / Amber Obsidian"** design language:
+- Glassmorphism with subtle amber accents
+- High-contrast accessibility (WCAG AA)
+- Smooth micro-animations (150-300ms)
 
 > "To rise from the ashes is to evolve. Phoenix AI doesn't just answer; it builds."
 
+## License
+
+This project is licensed under the [MIT License](LICENSE).
+
 ---
+
 *© 2025 Phoenix Intelligent Systems. Built with passion for the future.*

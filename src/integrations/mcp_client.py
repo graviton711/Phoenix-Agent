@@ -15,7 +15,7 @@ import os
 logger = logging.getLogger(__name__)
 
 # Base directory for workspace sandboxing
-BASE_DIR = Path(__file__).parent.parent
+BASE_DIR = Path(__file__).parent.parent.parent
 WORKSPACE_DIR = BASE_DIR / "workspace"
 
 @dataclass

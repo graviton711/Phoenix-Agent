@@ -6,11 +6,11 @@ import concurrent.futures
 import json
 import re
 import os
-from ai_core import get_client
+from core.ai_core import get_client
 from config import SEARCH_MODEL_FAST, SEARCH_MODEL_MID, SEARCH_MODEL_SMART
 
 # Dirs
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 PROMPTS_DIR = os.path.join(BASE_DIR, "prompts")
 
 class AdvancedSearch:

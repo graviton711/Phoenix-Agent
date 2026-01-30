@@ -4,7 +4,7 @@ import json
 import asyncio
 import logging
 from typing import List, Dict, Optional, Any, Callable
-from ai_core import get_client
+from core.ai_core import get_client
 from config import UI_ARCHITECT_MODEL, UI_DEFAULT_MODEL, UI_SCRIBE_MODEL
 
 # --- LOGGING CONFIGURATION ---
@@ -16,7 +16,7 @@ logging.basicConfig(
 logger = logging.getLogger("UI_Builder")
 
 # --- CONSTANTS ---
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 PROMPTS_DIR = os.path.join(BASE_DIR, "prompts")
 BUILD_DIR = os.path.join(BASE_DIR, "workspace", "builds")
 

@@ -6,7 +6,8 @@ import os
 import base64
 import asyncio
 from typing import Optional, Tuple
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 from config import VISION_MODEL
 
 # Get API keys
@@ -39,9 +40,9 @@ async def process_image(image_path: str, prompt: str = "Describe this image in d
         if not key:
             return "Error: No Google API key configured."
         
-        genai.configure(api_key=key)
+        client = genai.Client(api_key=key)
         
-        # Read and encode image
+        # Read and encode image (Client handles bytes directly if using Part)
         with open(image_path, "rb") as f:
             image_data = f.read()
         
@@ -57,14 +58,12 @@ async def process_image(image_path: str, prompt: str = "Describe this image in d
         }
         mime_type = mime_map.get(ext, "image/jpeg")
         
-        # Create model and generate
-        model = genai.GenerativeModel(VISION_MODEL)
-        
         response = await asyncio.to_thread(
-            model.generate_content,
-            [
+            client.models.generate_content,
+            model=VISION_MODEL,
+            contents=[
                 prompt,
-                {"mime_type": mime_type, "data": image_data}
+                types.Part.from_bytes(image_data, mime_type)
             ]
         )
         
