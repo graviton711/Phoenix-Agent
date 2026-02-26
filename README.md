@@ -246,8 +246,6 @@ Phoenix AI follows a **"Deep Tech / Amber Obsidian"** design language:
 - High-contrast accessibility (WCAG AA)
 - Smooth micro-animations (150-300ms)
 
-> "To rise from the ashes is to evolve. Phoenix AI doesn't just answer; it builds."
-
 ## License
 
 This project is licensed under the [MIT License](LICENSE).
